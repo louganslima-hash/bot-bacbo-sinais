@@ -25,7 +25,7 @@ let totalEmpates = 0;
 let alertaDisparado = false;
 let aguardandoResultado = false;
 let direcaoSugerida = ''; 
-let historicoRodadas = []; 
+let historicoRodadas = []; // [0] = Mais recente, [1] = Penúltimo...
 
 function obterMensagemGestao() {
     return `📊 *SUGESTÃO DE GESTÃO (SEM MARTINGALE)*\n` +
@@ -47,49 +47,51 @@ setInterval(async () => {
     }
 }, 12 * 60 * 60 * 1000);
 
-// VERIFICAÇÃO SEPARADA DOS 7 PADRÕES DO PDF
+// CORE DE INTELIGÊNCIA - OS 7 PADRÕES REAIS DO LOUGANS (GATILHO IMEDIATO)
 function verificar7Padrões(historico) {
-    if (historico.length < 8) return false;
-    
-    // Pega as fatias necessárias para análise profunda das sequências
-    const h = historico.slice(-8); 
-    const p7 = historico.slice(-7);
-    const p6 = historico.slice(-6);
-    const p5 = historico.slice(-5);
+    if (historico.length < 7) return false;
 
-    // 1. PADRÃO 2X1 (Ex: Vermelho, Vermelho, Azul, Vermelho -> Entrada na formação)
-    if (p5[0] === p5[1] && p5[2] !== p5[0] && p5[3] === p5[0] && p5[4] === p5[0]) {
-        return "PADRÃO 2X1";
+    // Fatias limpas onde [0] é o que acabou de cair na tela
+    const p3 = historico.slice(0, 3);
+    const p4 = historico.slice(0, 4);
+    const p5 = historico.slice(0, 5);
+    const p7 = historico.slice(0, 7);
+
+    // 4. PADRÃO ESCADINHA INVERTIDO (1x2x2) - TRAVA DE PRIORIDADE MÁXIMA
+    if (p5[0] === p5[1] && p5[2] === p5[3] && p5[0] !== p5[2] && p5[4] === p5[0]) {
+        return { nome: "PADRÃO ESCADINHA INVERTIDO", sugerido: p5[0] }; 
     }
 
-    // 2. PADRÃO 2X2 (Ex: Vermelho, Vermelho, Azul, Azul -> Entrada na quebra da última cor)
-    if (p5[1] === p5[2] && p5[3] === p5[4] && p5[1] !== p5[3]) {
-        return "PADRÃO 2X2";
+    // 2. PADRÃO 2X2 (Inversão)
+    if (p4[0] === p4[1] && p4[2] === p4[3] && p4[0] !== p4[2]) {
+        return { nome: "PADRÃO 2X2", sugerido: p4[2] }; 
     }
 
-    // 3. PADRÃO ESCADINHA (Formação visual em diagonal)
-    if (p5[0] !== p5[1] && p5[1] === p5[2] && p5[2] !== p5[3] && p5[3] === p5[4]) {
-        return "PADRÃO ESCADINHA";
+    // 1. PADRÃO 2X1 (Formato do Lougans: 🔴 🔵 🔴 🔴)
+    if (p4[0] === p4[2] && p4[0] === p4[3] && p4[1] !== p4[0]) {
+        return { nome: "PADRÃO 2X1", sugerido: p4[0] }; 
     }
 
-    // 4. PADRÃO ESCADINHA INVERTIDO
-    if (p6[0] !== p6[1] && p6[1] === p6[2] && p6[2] !== p6[3] && p6[3] === p6[4] && p6[4] === p6[5]) {
-        return "PADRÃO ESCADINHA INVERTIDO";
+    // 3. PADRÃO ESCADINHA (3x2)
+    if (p5[0] === p5[1] && p5[2] === p5[3] && p5[3] === p5[4] && p5[0] !== p5[2]) {
+        return { nome: "PADRÃO ESCADINHA", sugerido: p5[2] }; 
     }
 
-    // 5. PADRÃO DE ALTERNÂNCIA (Surf vertical de 4 bolinhas e uma quebra imediata)
-    if (p6[0] === p6[1] && p6[1] === p6[2] && p6[2] === p6[3] && p6[4] !== p6[3] && p6[5] === p6[3]) {
-        return "PADRÃO DE ALTERNÂNCIA";
+    // 5. PADRÃO DE ALTERNÂNCIA (Quebra do Surf)
+    if (p5[1] === p5[2] && p5[2] === p5[3] && p5[3] === p5[4] && p5[0] !== p5[1]) {
+        return { nome: "PADRÃO DE ALTERNÂNCIA (QUEBRA DO SURF)", sugerido: p5[1] }; 
     }
 
-    // 6. PADRÃO DE ALTERNÂNCIA 2 (Após o segundo 2x1 contra a mesa, entra no fluxo)
-    if (h[0] === h[1] && h[2] !== h[0] && h[3] === h[0] && h[4] !== h[0] && h[5] === h[0] && h[6] !== h[0] && h[7] === h[0]) {
-        return "PADRÃO DE ALTERNÂNCIA 2";
+    // 6. PADRÃO DE ALTERNÂNCIA 2 (2x1 Repetido contra a mesa)
+    if (p7[0] === p7[3] && p7[0] === p7[4] && p7[0] === p7[6] &&
+        p7[1] === p7[5] && p7[1] !== p7[0] && p7[2] === p7[0]) {
+        return { nome: "PADRÃO DE ALTERNÂNCIA 2", sugerido: p7[1] }; 
     }
 
-    // 7. PADRÃO DE QUEBRA DA SEGUNDA LINHA APÓS O SURF (Surf de exatamente 4 bolinhas e quebra na segunda coluna)
-    if (p7[0] === p7[1] && p7[1] === p7[2] && p7[2] === p7[3] && p7[4] !== p7[3] && p7[5] !== p7[3] && p7[6] === p7[3]) {
-        return "QUEBRA DA SEGUNDA LINHA APÓS O SURF";
+    // 7. QUEBRA DA SEGUNDA LINHA APÓS O SURF
+    const p6 = historico.slice(0, 6);
+    if (p6[0] === p6[1] && p6[2] === p6[3] && p6[3] === p6[4] && p6[4] === p6[5] && p6[0] !== p6[2]) {
+        return { nome: "QUEBRA DA SEGUNDA LINHA APÓS O SURF", sugerido: p6[2] }; 
     }
 
     return false;
@@ -105,15 +107,15 @@ async function analisarMesa() {
         const pctJogador = parseFloat(dados.jogador_porcentagem);
         const pctBanca = parseFloat(dados.banca_porcentagem);
         const diferenca = Math.abs(pctJogador - pctBanca); 
-        const resultadoAtual = dados.resultado_rodada; 
+        const resultadoAtual = dados.resultado_rodada; // Deve retornar 'JOGADOR', 'BANCA' ou 'EMPATE'
         
         const multiplicadorEmpate = dados.multiplicador_empate || "4x"; 
 
-        // Alimenta o histórico ignorando os empates para não quebrar a contagem visual das cores
+        // Alimenta o histórico inserindo o mais recente no início do array [0]
         if (resultadoAtual && resultadoAtual !== 'ESPERANDO' && resultadoAtual !== 'EMPATE') {
-            if (historicoRodadas[historicoRodadas.length - 1] !== resultadoAtual) {
-                historicoRodadas.push(resultadoAtual);
-                if (historicoRodadas.length > 15) historicoRodadas.shift();
+            if (historicoRodadas[0] !== resultadoAtual) {
+                historicoRodadas.unshift(resultadoAtual); // unshift garante que [0] é o mais novo
+                if (historicoRodadas.length > 15) historicoRodadas.pop();
             }
         }
 
@@ -138,19 +140,20 @@ async function analisarMesa() {
             return;
         }
 
-        // FILTRO DUPLO: ANÁLISE ISOLADA DOS 7 PADRÕES + JANELA DE 10% A 18%
+        // EXECUÇÃO DOS FILTROS UNIFICADOS
         const padraoDetectado = verificar7Padrões(historicoRodadas);
         const porcentagemValida = (diferenca >= DIFERENCA_MINIMA && diferenca <= DIFERENCA_MAXIMA);
 
         if (padraoDetectado && porcentagemValida && !alertaDisparado && !aguardandoResultado) {
-            direcaoSugerida = pctJogador > pctBanca ? 'JOGADOR' : 'BANCA';
+            // Define a direção com base no retorno preciso do padrão geométrico
+            direcaoSugerida = padraoDetectado.sugerido; 
             let corSinal = direcaoSugerida === 'BANCA' ? '🔴 BANCA' : '🔵 JOGADOR';
             
             const mensagemTelegram = 
                 `🎯 *SINAL DETECTADO (ESTRATÉGIA OFICIAL)!* 🎯\n\n` +
-                `📊 *Padrão Mapeado:* ${padraoDetectado}\n` +
+                `📊 *Padrão Mapeado:* ${padraoDetectado.nome}\n` +
                 `📈 *Diferença na Mesa:* ${diferenca.toFixed(1)}%\n\n` +
-                `🎯 *ENTRADA:* JOGAR NA ${corSinal} (A Favor da Maioria)\n\n` +
+                `🎯 *ENTRADA:* JOGAR NA ${corSinal}\n\n` +
                 `${obterMensagemGestao()}`;
 
             await bot.sendMessage(chatId, mensagemTelegram, { parse_mode: 'Markdown' });
@@ -160,12 +163,12 @@ async function analisarMesa() {
         }
 
     } catch (error) {
-        // Anti-travamento do loop
+        // Evita travamento
     }
 }
 
 setInterval(analisarMesa, INTERVALO_VERIFICACAO);
 
 // Teste de Ativação imediata enviado ao Telegram para checar o sinal
-bot.sendMessage(chatId, `🚀 *ROBÔ DAMA DOS DADOS TOTALMENTE BLINDADO!*\n\nConfiguração 100% Fiel ao PDF:\n1️⃣ Padrão 2x1\n2️⃣ Padrão 2x2\n3️⃣ Padrão Escadinha\n4️⃣ Padrão Escadinha Invertido\n5️⃣ Padrão de Alternância\n6️⃣ Padrão de Alternância 2\n7️⃣ Quebra da Segunda Linha após o Surf\n\n🔥 Filtro: Diferença entre 10% e 18% | 🟡 Leitura de Empates Ativa!`, { parse_mode: 'Markdown' })
+bot.sendMessage(chatId, `🚀 *ROBÔ DAMA DOS DADOS TOTALMENTE BLINDADO!*\n\nConfiguração 100% Fiel ao PDF (Gatilho Rápido):\n1️⃣ Padrão 2x1 (Corrigido)\n2️⃣ Padrão 2x2\n3️⃣ Padrão Escadinha (3x2)\n4️⃣ Padrão Escadinha Invertido (Prioridade)\n5️⃣ Padrão de Alternância (Quebra de Surf)\n6️⃣ Padrão de Alternância 2 (2x1 Contínuo)\n7️⃣ Quebra da Segunda Linha após o Surf\n\n🔥 Filtro: Diferença entre 10% e 18% | 🟡 Leitura de Empates Ativa!`, { parse_mode: 'Markdown' })
    .catch((e) => console.log(e.message));
