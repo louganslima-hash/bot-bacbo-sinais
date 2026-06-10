@@ -14,9 +14,9 @@ const bot = new TelegramBot(token, { polling: false });
 const API_URL = process.env.API_URL || 'https://api-bacbo-monitor.onrender.com/api/monitor/status';
 const INTERVALO_VERIFICACAO = 1000; 
 
-// TRAVAS DE PORCENTAGEM DO LOUGANS
-const DIFERENCA_MINIMA = 10.0; 
-const DIFERENCA_MAXIMA = 18.0; 
+// 🚨 NOVAS TRAVAS DE PORCENTAGEM DO LOUGANS (MUDOU PARA 8% A 22%)
+const DIFERENCA_MINIMA = 8.0; 
+const DIFERENCA_MAXIMA = 22.0; 
 
 let totalGreens = 0;
 let totalReds = 0;
@@ -25,7 +25,7 @@ let totalEmpates = 0;
 let alertaDisparado = false;
 let aguardandoResultado = false;
 let direcaoSugerida = ''; 
-let historicoRodadas = []; // [0] = Mais recente, [1] = Penúltimo...
+let ultimaRodadaAnalisada = '';
 
 function obterMensagemGestao() {
     return `📊 *SUGESTÃO DE GESTÃO (SEM MARTINGALE)*\n` +
@@ -48,14 +48,14 @@ setInterval(async () => {
 }, 12 * 60 * 60 * 1000);
 
 // CORE DE INTELIGÊNCIA - OS 7 PADRÕES REAIS DO LOUGANS (GATILHO IMEDIATO)
-function verificar7Padrões(historico) {
-    if (historico.length < 7) return false;
+function verificar7Padrões(historicoLimpo) {
+    if (historicoLimpo.length < 7) return false;
 
-    // Fatias limpas onde [0] é o que acabou de cair na tela
-    const p3 = historico.slice(0, 3);
-    const p4 = historico.slice(0, 4);
-    const p5 = historico.slice(0, 5);
-    const p7 = historico.slice(0, 7);
+    // Fatias limpas onde [0] é o que acabou de cair na tela (sem empates)
+    const p3 = historicoLimpo.slice(0, 3);
+    const p4 = historicoLimpo.slice(0, 4);
+    const p5 = historicoLimpo.slice(0, 5);
+    const p7 = historicoLimpo.slice(0, 7);
 
     // 4. PADRÃO ESCADINHA INVERTIDO (1x2x2) - TRAVA DE PRIORIDADE MÁXIMA
     if (p5[0] === p5[1] && p5[2] === p5[3] && p5[0] !== p5[2] && p5[4] === p5[0]) {
@@ -89,7 +89,7 @@ function verificar7Padrões(historico) {
     }
 
     // 7. QUEBRA DA SEGUNDA LINHA APÓS O SURF
-    const p6 = historico.slice(0, 6);
+    const p6 = historicoLimpo.slice(0, 6);
     if (p6[0] === p6[1] && p6[2] === p6[3] && p6[3] === p6[4] && p6[4] === p6[5] && p6[0] !== p6[2]) {
         return { nome: "QUEBRA DA SEGUNDA LINHA APÓS O SURF", sugerido: p6[2] }; 
     }
@@ -104,71 +104,69 @@ async function analisarMesa() {
 
         if (!dados || !dados.jogador_porcentagem || !dados.banca_porcentagem) return;
 
-        const pctJogador = parseFloat(dados.jogador_porcentagem);
-        const pctBanca = parseFloat(dados.banca_porcentagem);
-        const diferenca = Math.abs(pctJogador - pctBanca); 
-        const resultadoAtual = dados.resultado_rodada; // Deve retornar 'JOGADOR', 'BANCA' ou 'EMPATE'
-        
-        const multiplicadorEmpate = dados.multiplicador_empate || "4x"; 
+        const idRodadaAtual = dados.id_rodada || dados.gameId;
+        const resultadoAtual = dados.resultado_rodada; // 'JOGADOR', 'BANCA' ou 'EMPATE'
 
-        // Alimenta o histórico inserindo o mais recente no início do array [0]
-        if (resultadoAtual && resultadoAtual !== 'ESPERANDO' && resultadoAtual !== 'EMPATE') {
-            if (historicoRodadas[0] !== resultadoAtual) {
-                historicoRodadas.unshift(resultadoAtual); // unshift garante que [0] é o mais novo
-                if (historicoRodadas.length > 15) historicoRodadas.pop();
-            }
-        }
-
-        // VALIDAÇÃO DE RESULTADO (GREEN / RED / EMPATE DA RODADA)
-        if (aguardandoResultado && resultadoAtual && resultadoAtual !== 'ESPERANDO') {
+        // VALIDAÇÃO DO RESULTADO DA JOGADA (Lê o Empate para avisar no grupo)
+        if (aguardandoResultado && idRodadaAtual !== ultimaRodadaAnalisada && resultadoAtual && resultadoAtual !== 'ESPERANDO') {
             if (resultadoAtual === direcaoSugerida) {
                 totalGreens++;
                 await bot.sendMessage(chatId, `✅ *GREEN CONFIRMADO!*`);
-                aguardandoResultado = false;
-                alertaDisparado = false;
             } else if (resultadoAtual === 'EMPATE') {
                 totalEmpates++;
+                const multiplicadorEmpate = dados.multiplicador_empate || "4x"; 
                 await bot.sendMessage(chatId, `🟡 *EMPATE COM PROTEÇÃO!* 🟡\n\n🎯 O resultado foi Empate de *${multiplicadorEmpate}*.\nA sua proteção salvou a banca!`);
-                aguardandoResultado = false;
-                alertaDisparado = false;
             } else {
                 totalReds++;
                 await bot.sendMessage(chatId, `❌ *RED!* Sem Martingale, seguimos a gestão fixa.`);
-                aguardandoResultado = false;
-                alertaDisparado = false;
             }
+            aguardandoResultado = false;
+            alertaDisparado = false;
+            ultimaRodadaAnalisada = idRodadaAtual;
             return;
         }
 
-        // EXECUÇÃO DOS FILTROS UNIFICADOS
-        const padraoDetectado = verificar7Padrões(historicoRodadas);
-        const porcentagemValida = (diferenca >= DIFERENCA_MINIMA && diferenca <= DIFERENCA_MAXIMA);
-
-        if (padraoDetectado && porcentagemValida && !alertaDisparado && !aguardandoResultado) {
-            // Define a direção com base no retorno preciso do padrão geométrico
-            direcaoSugerida = padraoDetectado.sugerido; 
-            let corSinal = direcaoSugerida === 'BANCA' ? '🔴 BANCA' : '🔵 JOGADOR';
+        // Se for uma rodada nova e não estivermos esperando resultado, roda a análise
+        if (idRodadaAtual !== ultimaRodadaAnalisada && resultadoAtual !== 'ESPERANDO') {
             
-            const mensagemTelegram = 
-                `🎯 *SINAL DETECTADO (ESTRATÉGIA OFICIAL)!* 🎯\n\n` +
-                `📊 *Padrão Mapeado:* ${padraoDetectado.nome}\n` +
-                `📈 *Diferença na Mesa:* ${diferenca.toFixed(1)}%\n\n` +
-                `🎯 *ENTRADA:* JOGAR NA ${corSinal}\n\n` +
-                `${obterMensagemGestao()}`;
+            const pctJogador = parseFloat(dados.jogador_porcentagem);
+            const pctBanca = parseFloat(dados.banca_porcentagem);
+            const diferenca = Math.abs(pctJogador - pctBanca); 
 
-            await bot.sendMessage(chatId, mensagemTelegram, { parse_mode: 'Markdown' });
-            
-            alertaDisparado = true;
-            aguardandoResultado = true; 
+            // 🚨 SOLUÇÃO DOS EMPATES: Puxa o histórico bruto da API e arranca TODOS os empates da lista
+            const historicoBruto = dados.historico_resultados || dados.historico || []; 
+            const historicoLimpo = historicoBruto.filter(res => res !== 'EMPATE' && res !== 'E' && res !== 'T');
+
+            // Executa os filtros com a lista 100% limpa de empates
+            const padraoDetectado = verificar7Padrões(historicoLimpo);
+            const porcentagemValida = (diferenca >= DIFERENCA_MINIMA && diferenca <= DIFERENCA_MAXIMA);
+
+            if (padraoDetectado && porcentagemValida && !alertaDisparado && !aguardandoResultado) {
+                direcaoSugerida = padraoDetectado.sugerido; 
+                let corSinal = direcaoSugerida === 'BANCA' ? '🔴 BANCA' : '🔵 JOGADOR';
+                
+                const mensagemTelegram = 
+                    `🎯 *SINAL DETECTADO (ESTRATÉGIA OFICIAL)!* 🎯\n\n` +
+                    `📊 *Padrão Mapeado:* ${padraoDetectado.nome}\n` +
+                    `📈 *Diferença na Mesa:* ${diferenca.toFixed(1)}%\n\n` +
+                    `🎯 *ENTRADA:* JOGAR NA ${corSinal}\n\n` +
+                    `${obterMensagemGestao()}`;
+
+                await bot.sendMessage(chatId, mensagemTelegram, { parse_mode: 'Markdown' });
+                
+                alertaDisparado = true;
+                aguardandoResultado = true; 
+                ultimaRodadaAnalisada = idRodadaAtual;
+            }
         }
 
     } catch (error) {
-        // Evita travamento
+        // Anti-travamento
     }
 }
 
 setInterval(analisarMesa, INTERVALO_VERIFICACAO);
 
-// Teste de Ativação imediata enviado ao Telegram para checar o sinal
-bot.sendMessage(chatId, `🚀 *ROBÔ DAMA DOS DADOS TOTALMENTE BLINDADO!*\n\nConfiguração 100% Fiel ao PDF (Gatilho Rápido):\n1️⃣ Padrão 2x1 (Corrigido)\n2️⃣ Padrão 2x2\n3️⃣ Padrão Escadinha (3x2)\n4️⃣ Padrão Escadinha Invertido (Prioridade)\n5️⃣ Padrão de Alternância (Quebra de Surf)\n6️⃣ Padrão de Alternância 2 (2x1 Contínuo)\n7️⃣ Quebra da Segunda Linha após o Surf\n\n🔥 Filtro: Diferença entre 10% e 18% | 🟡 Leitura de Empates Ativa!`, { parse_mode: 'Markdown' })
+// Teste de Ativação imediata enviado ao Telegram
+bot.sendMessage(chatId, `🚀 *ROBÔ DAMA DOS DADOS ATUALIZADO!*\n\nConfiguração Atual:\n🔥 Trava de Porcentagem: *8% a 22%*\n🟡 Filtro de Empate Inteligente Ativo!\n*(Ignorado nos padrões, mas contabilizado no Green/Red)*`, { parse_mode: 'Markdown' })
    .catch((e) => console.log(e.message));
