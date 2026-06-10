@@ -14,7 +14,7 @@ const bot = new TelegramBot(token, { polling: false });
 const API_URL = process.env.API_URL || 'https://api-bacbo-monitor.onrender.com/api/monitor/status';
 const INTERVALO_VERIFICACAO = 1000; 
 
-// 🚨 NOVAS TRAVAS DE PORCENTAGEM DO LOUGANS (MUDOU PARA 8% A 22%)
+// TRAVAS DE PORCENTAGEM DO LOUGANS
 const DIFERENCA_MINIMA = 8.0; 
 const DIFERENCA_MAXIMA = 22.0; 
 
@@ -26,6 +26,9 @@ let alertaDisparado = false;
 let aguardandoResultado = false;
 let direcaoSugerida = ''; 
 let ultimaRodadaAnalisada = '';
+
+// Variável para controlar o aviso de porcentagem e evitar spam
+let avisoMesaAquecidaDisparado = false;
 
 function obterMensagemGestao() {
     return `📊 *SUGESTÃO DE GESTÃO (SEM MARTINGALE)*\n` +
@@ -51,7 +54,6 @@ setInterval(async () => {
 function verificar7Padrões(historicoLimpo) {
     if (historicoLimpo.length < 7) return false;
 
-    // Fatias limpas onde [0] é o que acabou de cair na tela (sem empates)
     const p3 = historicoLimpo.slice(0, 3);
     const p4 = historicoLimpo.slice(0, 4);
     const p5 = historicoLimpo.slice(0, 5);
@@ -105,9 +107,9 @@ async function analisarMesa() {
         if (!dados || !dados.jogador_porcentagem || !dados.banca_porcentagem) return;
 
         const idRodadaAtual = dados.id_rodada || dados.gameId;
-        const resultadoAtual = dados.resultado_rodada; // 'JOGADOR', 'BANCA' ou 'EMPATE'
+        const resultadoAtual = dados.resultado_rodada; 
 
-        // VALIDAÇÃO DO RESULTADO DA JOGADA (Lê o Empate para avisar no grupo)
+        // VALIDAÇÃO DO RESULTADO DA JOGADA
         if (aguardandoResultado && idRodadaAtual !== ultimaRodadaAnalisada && resultadoAtual && resultadoAtual !== 'ESPERANDO') {
             if (resultadoAtual === direcaoSugerida) {
                 totalGreens++;
@@ -126,18 +128,35 @@ async function analisarMesa() {
             return;
         }
 
-        // Se for uma rodada nova e não estivermos esperando resultado, roda a análise
+        // Fluxo principal de análise na rodada nova
         if (idRodadaAtual !== ultimaRodadaAnalisada && resultadoAtual !== 'ESPERANDO') {
             
             const pctJogador = parseFloat(dados.jogador_porcentagem);
             const pctBanca = parseFloat(dados.banca_porcentagem);
             const diferenca = Math.abs(pctJogador - pctBanca); 
 
-            // 🚨 SOLUÇÃO DOS EMPATES: Puxa o histórico bruto da API e arranca TODOS os empates da lista
+            // 🚨 NOVO: ALERTA DE PORCENTAGEM FAVORÁVEL (MESA AQUECIDA)
+            if (diferenca >= DIFERENCA_MINIMA && diferenca <= DIFERENCA_MAXIMA) {
+                if (!avisoMesaAquecidaDisparado && !aguardandoResultado) {
+                    const maiorCor = pctJogador > pctBanca ? '🔵 JOGADOR' : '🔴 BANCA';
+                    const msgAquecimento = 
+                        `⚠️ *MESA EM ANÁLISE PROFUNDA!* ⚠️\n\n` +
+                        `📈 A diferença de volume atingiu *${diferenca.toFixed(1)}%*.\n` +
+                        `🔥 Tendência forte a favor de: *${maiorCor}*\n\n` +
+                        `📱 *Fiquem atentos no grupo,* o robô está aguardando o fechamento geométrico dos padrões!`;
+                    
+                    await bot.sendMessage(chatId, msgAquecimento, { parse_mode: 'Markdown' });
+                    avisoMesaAquecidaDisparado = true; // Trava o aviso para não repetir
+                }
+            } else {
+                // Se a mesa esfriar (cair de 8%), reseta a trava para um próximo aquecimento
+                avisoMesaAquecidaDisparado = false;
+            }
+
+            // LIMPEZA DE EMPATES PARA A FORMAÇÃO DOS PADRÕES
             const historicoBruto = dados.historico_resultados || dados.historico || []; 
             const historicoLimpo = historicoBruto.filter(res => res !== 'EMPATE' && res !== 'E' && res !== 'T');
 
-            // Executa os filtros com a lista 100% limpa de empates
             const padraoDetectado = verificar7Padrões(historicoLimpo);
             const porcentagemValida = (diferenca >= DIFERENCA_MINIMA && diferenca <= DIFERENCA_MAXIMA);
 
@@ -168,5 +187,5 @@ async function analisarMesa() {
 setInterval(analisarMesa, INTERVALO_VERIFICACAO);
 
 // Teste de Ativação imediata enviado ao Telegram
-bot.sendMessage(chatId, `🚀 *ROBÔ DAMA DOS DADOS ATUALIZADO!*\n\nConfiguração Atual:\n🔥 Trava de Porcentagem: *8% a 22%*\n🟡 Filtro de Empate Inteligente Ativo!\n*(Ignorado nos padrões, mas contabilizado no Green/Red)*`, { parse_mode: 'Markdown' })
+bot.sendMessage(chatId, `🚀 *ROBÔ DAMA DOS DADOS ATUALIZADO!*\n\nConfiguração Atual:\n🔥 Trava de Porcentagem: *8% a 22%*\n⚠️ Alerta de Pré-Sinal (Mesa Aquecida) Ativo!\n🟡 Filtro de Empate Inteligente Ativo!`, { parse_mode: 'Markdown' })
    .catch((e) => console.log(e.message));
