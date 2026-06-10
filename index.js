@@ -156,13 +156,14 @@ async function analisarMesa() {
                 avisoMesaAquecidaDisparado = false;
             }
 
-            // LIMPEZA DE EMPATES
-            const historicoBruto = dados.historico_resultados || dados.historico || []; 
+            // AJUSTADO: Pega direto o array que criamos no monitor
+            const historicoBruto = dados.historico_resultados || []; 
             
             // 🟢 DIAGNÓSTICO 2: Ver o histórico bruto que o robô achou
             console.log(`[HISTÓRICO BRUTO ENCONTRADO]:`, historicoBruto);
 
-            const historicoLimpo = historicoBruto.filter(res => res !== 'EMPATE' && res !== 'E' && res !== 'T');
+            // AJUSTADO: Garante a filtragem correta das letras de simulação 'P' e 'B'
+            const historicoLimpo = historicoBruto.filter(res => res === 'P' || res === 'B' || res === 'PLAYER' || res === 'BANKER');
             
             // 🟢 DIAGNÓSTICO 3: Ver o histórico após limpar os empates
             console.log(`[HISTÓRICO LIMPO PARA PADRÕES]:`, historicoLimpo);
