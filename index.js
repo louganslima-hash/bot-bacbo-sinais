@@ -12,7 +12,7 @@ const chatId = process.env.TELEGRAM_CHAT_ID || 'SEU_CHAT_ID_AQUI';
 const bot = new TelegramBot(token, { polling: false });
 
 const API_URL = 'https://api-bacbo-monitor.onrender.com/api/monitor/status';
-const INTERVALO_VERIFICACAO = 1000; 
+const INTERVALO_VERIFICACAO = 5000; 
 
 // TRAVAS DE PORCENTAGEM DO LOUGANS
 const DIFERENCA_MINIMA = 8.0; 
