@@ -12,7 +12,7 @@ const chatId = process.env.TELEGRAM_CHAT_ID || 'SEU_CHAT_ID_AQUI';
 const bot = new TelegramBot(token, { polling: false });
 
 const API_URL = 'https://api-bacbo-monitor.onrender.com/api/monitor/status';
-const INTERVALO_VERIFICACAO = 5000; 
+const INTERVALO_VERIFICACAO = 5000; // Verificação segura a cada 5 segundos para não sobrecarregar
 
 // TRAVAS DE PORCENTAGEM DO LOUGANS
 const DIFERENCA_MINIMA = 8.0; 
@@ -48,7 +48,7 @@ setInterval(async () => {
     }
 }, 12 * 60 * 60 * 1000);
 
-// CORE DE INTELIGÊNCIA - OS 7 PADRÕES REAIS DO LOUGANS (GATILHO IMEDIATO)
+// CORE DE INTELIGÊNCIA - OS 7 PADRÕES REAIS DO LOUGANS
 function verificar7Padrões(historicoLimpo) {
     if (historicoLimpo.length < 7) return false;
 
@@ -57,7 +57,7 @@ function verificar7Padrões(historicoLimpo) {
     const p5 = historicoLimpo.slice(0, 5);
     const p7 = historicoLimpo.slice(0, 7);
 
-    // 4. PADRÃO ESCADINHA INVERTIDO (1x2x2) - TRAVA DE PRIORIDADE MÁXIMA
+    // 4. PADRÃO ESCADINHA INVERTIDO (1x2x2)
     if (p5[0] === p5[1] && p5[2] === p5[3] && p5[0] !== p5[2] && p5[4] === p5[0]) {
         return { nome: "PADRÃO ESCADINHA INVERTIDO", sugerido: p5[0] }; 
     }
@@ -67,7 +67,7 @@ function verificar7Padrões(historicoLimpo) {
         return { nome: "PADRÃO 2X2", sugerido: p4[2] }; 
     }
 
-    // 1. PADRÃO 2X1 (Formato do Lougans: 🔴 🔵 🔴 🔴)
+    // 1. PADRÃO 2X1
     if (p4[0] === p4[2] && p4[0] === p4[3] && p4[1] !== p4[0]) {
         return { nome: "PADRÃO 2X1", sugerido: p4[0] }; 
     }
@@ -82,7 +82,7 @@ function verificar7Padrões(historicoLimpo) {
         return { nome: "PADRÃO DE ALTERNÂNCIA (QUEBRA DO SURF)", sugerido: p5[1] }; 
     }
 
-    // 6. PADRÃO DE ALTERNÂNCIA 2 (2x1 Repetido contra a mesa)
+    // 6. PADRÃO DE ALTERNÂNCIA 2
     if (p7[0] === p7[3] && p7[0] === p7[4] && p7[0] === p7[6] &&
         p7[1] === p7[5] && p7[1] !== p7[0] && p7[2] === p7[0]) {
         return { nome: "PADRÃO DE ALTERNÂNCIA 2", sugerido: p7[1] }; 
@@ -97,7 +97,7 @@ function verificar7Padrões(historicoLimpo) {
     return false;
 }
 
-// FUNÇÃO DE ANÁLISE COM LOGS DE DIAGNÓSTICO
+// FUNÇÃO DE ANÁLISE CORRIGIDA (EVITA DISPAROS REPETIDOS NA MESMA RODADA)
 async function analisarMesa() {
     try {
         const response = await axios.get(API_URL);
@@ -108,14 +108,14 @@ async function analisarMesa() {
             return;
         }
 
-        // 🟢 DIAGNÓSTICO 1: Ver o que está vindo da API
-        console.log(`[MESA] Jogador: ${dados.jogador_porcentagem}% | Banca: ${dados.banca_porcentagem}% | Rodada: ${dados.id_rodada || dados.gameId} | Resultado: ${dados.resultado_rodada}`);
-
         const idRodadaAtual = dados.id_rodada || dados.gameId;
         const resultadoAtual = dados.resultado_rodada; 
 
-        // VALIDAÇÃO DO RESULTADO DA JOGADA
-        if (aguardandoResultado && idRodadaAtual !== ultimaRodadaAnalisada && resultadoAtual && resultadoAtual !== 'ESPERANDO') {
+        // 🟢 DIAGNÓSTICO 1: Ver o que está vindo da API
+        console.log(`[MESA] Jogador: ${dados.jogador_porcentagem}% | Banca: ${dados.banca_porcentagem}% | Rodada: ${idRodadaAtual} | Resultado: ${resultadoAtual}`);
+
+        // VALIDAÇÃO DO RESULTADO DA JOGADA (Muda de rodada e veio o resultado real)
+        if (aguardandoResultado && idRodadaAtual === ultimaRodadaAnalisada && resultadoAtual && resultadoAtual !== 'ESPERANDO') {
             if (resultadoAtual === direcaoSugerida) {
                 totalGreens++;
                 await bot.sendMessage(chatId, `✅ *GREEN CONFIRMADO!*`);
@@ -129,54 +129,26 @@ async function analisarMesa() {
             }
             aguardandoResultado = false;
             alertaDisparado = false;
-            ultimaRodadaAnalisada = idRodadaAtual;
             return;
         }
 
-        if (idRodadaAtual !== ultimaRodadaAnalisada && resultadoAtual !== 'ESPERANDO') {
+        // SÓ ANALISA SE FOR UMA RODADA TOTALMENTE NOVA E SE ESTIVER EM ESPERANDO
+        if (idRodadaAtual !== ultimaRodadaAnalisada && resultadoAtual === 'ESPERANDO' && !alertaDisparado && !aguardandoResultado) {
             
             const pctJogador = parseFloat(dados.jogador_porcentagem || 0);
             const pctBanca = parseFloat(dados.banca_porcentagem || 0);
             const diferenca = Math.abs(pctJogador - pctBanca); 
+            const porcentagemValida = (diferenca >= DIFERENCA_MINIMA && diferenca <= DIFERENCA_MAXIMA);
 
-            // ALERTA DE PORCENTAGEM FAVORÁVEL
-            if (diferenca >= DIFERENCA_MINIMA && diferenca <= DIFERENCA_MAXIMA) {
-                if (!avisoMesaAquecidaDisparado && !aguardandoResultado) {
-                    const maiorCor = pctJogador > pctBanca ? '🔵 JOGADOR' : '🔴 BANCA';
-                    const msgAquecimento = 
-                        `⚠️ *MESA EM ANÁLISE PROFUNDA!* ⚠️\n\n` +
-                        `📈 A diferença de volume atingiu *${diferenca.toFixed(1)}%*.\n` +
-                        `🔥 Tendência forte a favor de: *${maiorCor}*\n\n` +
-                        `📱 *Fiquem atentos no grupo!*`;
-                    
-                    await bot.sendMessage(chatId, msgAquecimento, { parse_mode: 'Markdown' });
-                    avisoMesaAquecidaDisparado = true;
-                }
-            } else {
-                avisoMesaAquecidaDisparado = false;
-            }
-
-            // AJUSTADO: Pega direto o array que criamos no monitor
+            // LIMPEZA DE EMPATES
             const historicoBruto = dados.historico_resultados || []; 
-            
-            // 🟢 DIAGNÓSTICO 2: Ver o histórico bruto que o robô achou
-            console.log(`[HISTÓRICO BRUTO ENCONTRADO]:`, historicoBruto);
-
-            // AJUSTADO: Garante a filtragem correta das letras de simulação 'P' e 'B'
             const historicoLimpo = historicoBruto.filter(res => res === 'P' || res === 'B' || res === 'PLAYER' || res === 'BANKER');
             
-            // 🟢 DIAGNÓSTICO 3: Ver o histórico após limpar os empates
             console.log(`[HISTÓRICO LIMPO PARA PADRÕES]:`, historicoLimpo);
 
             const padraoDetectado = verificar7Padrões(historicoLimpo);
-            const porcentagemValida = (diferenca >= DIFERENCA_MINIMA && diferenca <= DIFERENCA_MAXIMA);
 
-            // 🟢 DIAGNÓSTICO 4: Ver por que não enviou
-            if (padraoDetectado) {
-                console.log(`🎯 PADRÃO DETECTADO: ${padraoDetectado.nome} | Porcentagem Válida? ${porcentagemValida} (Dif: ${diferenca.toFixed(1)}%)`);
-            }
-
-            if (padraoDetectado && porcentagemValida && !alertaDisparado && !aguardandoResultado) {
+            if (padraoDetectado && porcentagemValida) {
                 direcaoSugerida = padraoDetectado.sugerido; 
                 
                 let corSinal = '';
@@ -199,8 +171,15 @@ async function analisarMesa() {
                 
                 alertaDisparado = true;
                 aguardandoResultado = true; 
-                ultimaRodadaAnalisada = idRodadaAtual;
+                ultimaRodadaAnalisada = idRodadaAtual; // Salva na hora para travar repetições
+                avisoMesaAquecidaDisparado = false;
             }
+        }
+
+        // Reseta o aviso de aquecimento se mudar a rodada
+        if (idRodadaAtual !== ultimaRodadaAnalisada && resultadoAtual !== 'ESPERANDO' && !aguardandoResultado) {
+            ultimaRodadaAnalisada = idRodadaAtual;
+            alertaDisparado = false;
         }
 
     } catch (error) {
